@@ -1,0 +1,232 @@
+---
+title: "Case"
+author: "Cassi"
+date: "2023-09-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#os pacotes usados:
+library(tidyverse)
+library(readxl)
+
+```
+
+###Importando, e organizando os dados:
+
+```{r, fig.height= 16, fig.width=14}
+
+#ler datos do arquivo excel para as 3 planilhas
+diesel <- read_xlsx("vendas_distribuidoras_anp.xlsx", "diesel")
+etanol <- read_xlsx("vendas_distribuidoras_anp.xlsx", "etanol")
+gasolina <- read_xlsx("vendas_distribuidoras_anp.xlsx", "gasolina")
+
+#uma função para deixar os dados "tidy"/organizados, com uma única observação por linha, uma uníca variavel por coluna
+pivot_data = function(base)
+{
+  base <- base %>% 
+    pivot_longer(starts_with("20"), names_to = "ano", values_to = "m3", names_transform = list(ano = as.integer))
+  return(base)
+  
+}
+
+#aplicar para os tres tipos de combustivel
+diesel <- pivot_data(diesel) %>% 
+  mutate(tipo = "diesel")
+etanol <- pivot_data(etanol) %>% 
+  mutate(tipo = "etanol")
+gasolina  <-  pivot_data(gasolina) %>% 
+  mutate(tipo = "gasolina")
+
+
+#inur todos em um único data frame
+combustiveis_vendas <-rbind(diesel, etanol, gasolina)
+
+combustiveis_vendas
+
+```
+
+###Qual a sazonalidade da venda de combustiveis?
+
+```{r}
+
+#adicionando colunas auxiliares ao data frame
+meses_chr_vct <-  c("Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez")
+combustiveis_vendas <- combustiveis_vendas %>% 
+  mutate(mes_chr = case_when(meses == 1 ~ meses_chr_vct[1],
+                          meses == 2 ~ meses_chr_vct[2],
+                          meses == 3 ~ meses_chr_vct[3],
+                          meses == 4 ~ meses_chr_vct[4],
+                          meses == 5 ~ meses_chr_vct[5],
+                          meses == 6 ~ meses_chr_vct[6],
+                          meses == 7 ~ meses_chr_vct[7],
+                          meses == 8 ~ meses_chr_vct[8],
+                          meses == 9 ~ meses_chr_vct[9],
+                          meses == 10 ~ meses_chr_vct[10],
+                          meses == 11 ~ meses_chr_vct[11],
+                          meses == 12 ~ meses_chr_vct[12]),
+         data = paste(mes_chr,"/",as.character(ano)),
+         anomes = ano*100 + meses)
+
+#ver a sazonalidade da venda por ano
+combustiveis_vendas %>%
+  filter(regiao == "br") %>%  #a base de dados já inclui para o brasil todo, então não é necessario fazer a soma
+  group_by(ano, meses, tipo) %>% 
+  summarise(volume = sum(m3)) %>%
+  ggplot(mapping = aes(x = meses, y = volume, color = tipo)) + 
+  geom_point() +
+  geom_line() +
+  facet_wrap(~ano)
+
+
+#Um loop que gera um grafico para cada ano
+for (i in 0:20) 
+{
+ano_i <- i + 2000
+graph <-  combustiveis_vendas %>%
+  filter(regiao == "br") %>% 
+  group_by(ano, meses, tipo) %>% 
+  summarise(volume = sum(m3)) %>%
+  filter(ano == ano_i) %>% 
+  ggplot(mapping = aes(x = meses, y = volume, color = tipo)) + 
+  geom_point() +
+  scale_x_continuous(breaks = c(1:12)) +
+  geom_line() +
+  labs(
+    title = as.character(ano_i)
+  ) +
+  xlab("Mês") +
+  ylab("Volume de Vendas de combustivel (m^3)")
+
+print(graph)
+
+}
+
+
+
+
+```
+
+No que tange a sazonalidade, agregando o consumo de combustiveis um pico de cunsumo em maio (inicio do ano) e outro em outubro. O consumo de vai aumentando ao longo do ano e, para diesel,com um ponto de inflexão no pico de agosto/outubro, que, a partir desse momento, declina e, para gasolina, um aumento nos últimos dois meses. Alguns outliers são uma queda no consumo de diesel em 05/2018, que coincide com a greve dos caminhoneiros, e outra com os três tipos de combustivél em 04/2020, que coincide com a pandemia.
+
+
+###Essa sazonalidade é igual em todos os estados?
+
+```{r}
+#para saber quais estados estão presentes na base de dados
+combustiveis_vendas %>%
+  distinct(regiao) %>% 
+  pull(regiao)
+  
+
+#plotando os graficos, temos:
+combustiveis_vendas %>%
+  filter(regiao != "br") %>%  #removendo os dados do Brasil todo como agregado da análise
+  group_by(ano, meses, regiao) %>% 
+  summarise(volume = sum(m3)) %>% #dessa vez, somamos os tres dipos de combustivel para ter uma soma da venda total de combustiveis por ano e mes por região
+  ggplot(mapping = aes(x = meses, y = volume, color = regiao)) + 
+  geom_point() +
+  geom_line() +
+  facet_wrap(~ano)
+
+#novamente, um loop que gera um grafico para cada ano
+for (i in 0:20) 
+{
+ano_i <- i + 2000
+graph <-  combustiveis_vendas %>%
+  filter(regiao != "br") %>%
+  group_by(ano, meses, regiao) %>%
+  summarise(volume = sum(m3)) %>%
+  filter(ano == ano_i) %>% 
+  ggplot(mapping = aes(x = meses, y = volume, color = regiao)) + 
+  geom_point() +
+  scale_x_continuous(breaks = c(1:12)) +
+  geom_line() +
+  labs(
+    title = as.character(ano_i)
+  ) +
+  xlab("Mês") +
+  ylab("Volume de Vendas de combustivel (m^3)")
+
+print(graph)
+
+}
+
+
+
+```
+
+Em linhas gerais, os estados aparentam ter mesma sazonalidade, com São Paulo, maior consumidor, tendo maiores variações/variações mais acentuadas.
+
+
+###Como o consumo de cada tipo de combustível está distribuido entre os estados brasileiros?
+
+```{r}
+
+#fazendo um agregado de todo tipo de combistivel vendido, em termos percentuais, por região, no período de 2000-2020, temos:
+#calcular vendas totais
+combustiveis_vendas_tot <- combustiveis_vendas %>%
+  filter(regiao != "br") %>% 
+  group_by(regiao) %>% 
+  summarise(volume_tot = sum(m3))
+#calcular vendas t por tipo de combustivel
+combustiveis_vendas_rel <- combustiveis_vendas %>%
+  filter(regiao != "br") %>% 
+  group_by(regiao, tipo) %>% 
+  summarise(volume_rel = sum(m3))
+#unir ambos e calcular porcentagens
+test <- left_join(combustiveis_vendas_rel, combustiveis_vendas_tot) %>% 
+  mutate(tipo_percent = volume_rel/volume_tot)
+
+test %>% 
+ggplot(mapping = aes(x = regiao, y = tipo_percent, fill = tipo)) + 
+  geom_bar(stat="identity") +
+  labs(
+    title = "Parcela da participação na venda de combistiveis por tipo de combústivel e região no periodo de 2000-2020"
+  ) +
+  xlab("Região") +
+  ylab("Parcela da participação")
+
+
+```
+
+###Tamanho total do mercado
+
+```{r}
+
+combustiveis_vendas %>%
+  filter(regiao == "br") %>% 
+  group_by(tipo) %>% 
+  summarise(volume = sum(m3)) %>% 
+  ggplot(mapping = aes(x = tipo, y = volume, fill = tipo)) + 
+  geom_bar(stat="identity") +
+  labs(
+    title = "Tamanho do mercado no período de 2000-2020"
+  ) +
+  xlab("Tipo") +
+  ylab("Volume de Vendas de combustivel (m^3)")
+
+
+```
+
+###Como ele evoluiu nos últimos 5 anos
+
+```{r}
+
+combustiveis_vendas %>%
+  filter(regiao == "br", ano %in% c(2020, 2019, 2018, 2017, 2016)) %>%  # selecionando os últimos 5 anos presentes na base
+  group_by(ano, tipo) %>% 
+  summarise(volume = sum(m3)) %>%
+  ggplot(mapping = aes(x = ano, y = volume, color = tipo)) + 
+  geom_point() +
+  geom_line() +
+  labs(
+    title = "Evolução do mercado nos últimos 5 anos"
+  ) +
+  xlab("Ano") +
+  ylab("Volume de Vendas de combustivel (m^3)")
+
+
+```
+
+
